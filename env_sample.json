@@ -1,0 +1,18 @@
+{
+    "user_id": "<sample user id>",
+    "kmcs": {
+        "<kmc_1>": {
+            "partnerID": "<id_int_1>",
+            "adminkey": "key_i"
+        },
+        "<kmc_2>": {
+            "partnerID": "<id_int_2>",
+            "adminkey": "key_2"
+        }
+    },
+    "ftp_server": {
+        "host": "<server_name>",
+        "username": "<user_name>",
+        "password": "<password>"
+    }
+}
