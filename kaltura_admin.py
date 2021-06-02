@@ -5,13 +5,14 @@ import logging
 from KalturaClient.Plugins.Core import KalturaUserFilter, KalturaSessionType, KalturaNullableBoolean, KalturaFilterPager
 from KalturaClient import KalturaClient, KalturaConfiguration
 from datetime import date
-from pandas import DataFrame
+import pandas as pd
+from tqdm import tqdm
 import pysftp
 import json
 
 """
-This report generates a list of admins of several Kaltura Management Consoles(kmcs) into a CSV file, 
-and send the generated CSV file to a FTP server
+This report generates a list of admins of several Kaltura Management Consoles(kmcs)
+and send to the FTP server as a csv file
 """
 
 # Set this to DEBUG for more information
@@ -20,6 +21,9 @@ log = logging.getLogger(__name__)
 
 
 def get_kaltura_session(user_id, partnerID, adminkey):
+    """
+    get session using partnerID and adminkey from configuration file
+    """
     config = KalturaConfiguration(partnerID)
     config.serviceUrl = "https://www.kaltura.com/"
     client = KalturaClient(config)
@@ -34,74 +38,100 @@ def get_kaltura_session(user_id, partnerID, adminkey):
     return client
 
 
-"""
-Get the configuration file
-"""
-parser = argparse.ArgumentParser(description='Generate Kaltura KMC admin list')
-parser.add_argument('env', type=str, help='env json file with kmc settings')
-args = parser.parse_args()
-if not os.path.isfile(args.env):
-    log.warn("env.json file does not exist. Please provide file path.")
-    sys.exit()
+def get_kmc_admin_list(kaltura_user_id, kmcs):
+    """
+    loop through all Kaltura Management Consoles
+    looking for people with admin roles
+    """
+    column_names = ['kmc_name', 'user_id',
+                    'first_name', 'last_name', 'role_name']
+    user_df = pd.DataFrame(columns=column_names)
+    for kmc_name in kmcs:
+        kmc = kmcs[kmc_name]
+        partnerID = kmc['partnerID']
+        adminkey = kmc['adminkey']
+        client = get_kaltura_session(kaltura_user_id, partnerID, adminkey)
+        filter = KalturaUserFilter()
+        filter.isAdminEqual = KalturaNullableBoolean.TRUE_VALUE
+        filter.loginEnabledEqual = KalturaNullableBoolean.TRUE_VALUE
+        pager = KalturaFilterPager()
+        pager.pageSize = 500
+        result = client.user.list(filter, pager)
+        log.info(
+            f'''Retriving kmc: {kmc_name} Total Records: {result.totalCount}''')
+        for item in result.objects:
+            if item.roleNames == "Publisher Administrator" or item.roleNames == "Content Manager":
+                # remove @xxxxx
+                if '@' in item.id:
+                    item_id = item.id.partition('@')
+                    id = item_id[0]
+                    kmc_user_id = id
+                else:
+                    kmc_user_id = item.id
+                row_data = {'kmc_name': kmc_name,
+                            'user_id': kmc_user_id,
+                            'first_name': item.firstName,
+                            'last_name': item.lastName,
+                            'role_name': item.roleNames}
+                user_df = user_df.append(row_data, ignore_index=True)
+    return user_df
 
-"""
-Generate admin list and report
-"""
-# load the configuration file
-with open(args.env, "r") as jsonfile:
-    data = json.load(jsonfile)
-    kmcs = data["kmcs"]
-    user_id = data["user_id"]
-    ftp_server = data["ftp_server"]
 
-# loop through all Kaltura Management Consoles
-# looking for people with admin roles
-username_list = []
-for i in kmcs:
-    kmc = kmcs[i]
-    partnerID = kmc['partnerID']
-    adminkey = kmc['adminkey']
-    client = get_kaltura_session(user_id, partnerID, adminkey)
-    filter = KalturaUserFilter()
-    filter.isAdminEqual = KalturaNullableBoolean.TRUE_VALUE
-    filter.loginEnabledEqual = KalturaNullableBoolean.TRUE_VALUE
-    pager = KalturaFilterPager()
-    pager.pageSize = 500
-    result = client.user.list(filter, pager)
-    log.info("Retriving kmc: {}".format(i))
-    log.info("Total Records: {}".format(result.totalCount))
-    for item in result.objects:
-        if item.roleNames == "Publisher Administrator" or item.roleNames == "Content Manager":
-            # remove @xxxxx
-            if '@' in item.id:
-                item_id = item.id.partition('@')
-                id = item_id[0]
-                username_list.append(id)
-            else:
-                username_list.append(item.id)
-# remove duplicate
-result = list(set(username_list))
+def sftp_kmc_admin_list(kmc_admin_df, ftp_server):
+    """
+    sftp the KMC admin user information as an csv file to SFTP server
+    """
+    # connect to the sftp server and authenticate with a private key
+    cnopts = pysftp.CnOpts()
+    cnopts.hostkeys = None
+    sftp = pysftp.Connection(
+        host=ftp_server["host"],
+        username=ftp_server["username"],
+        password=ftp_server["password"],
+        cnopts=cnopts)
 
-# sort list
-result.sort()
+    # send file to SFTP server
+    filename = 'Kaltura_admin_{}.csv'.format(date.today())
+    with sftp.open(filename, 'w+') as f:
+        chunksize = 100
+        with tqdm(total=len(kmc_admin_df)) as progbar:
+            log.info(f'''status {progbar}''')
+            kmc_admin_df.to_csv(f, index=False, chunksize=chunksize)
+            progbar.update(chunksize)
+    log.info(
+        f'''Uploaded file to sftp server.''')
 
-# result
-df = DataFrame(result)
 
-# generate the output csv file with timestamp
-filename = 'Kaltura_admin_{}.csv'.format(date.today())
-df.to_csv(filename, index=False, header=False)
+def main():
+    """
+    Get the configuration file
+    """
+    parser = argparse.ArgumentParser(
+        description='Generate Kaltura KMC admin list')
+    parser.add_argument(
+        'env', type=str, help='env json file with kmc settings')
+    args = parser.parse_args()
+    if not os.path.isfile(args.env):
+        log.warn("env.json file does not exist. Please provide file path.")
+        sys.exit()
 
-"""**Connect to filezilla**"""
-cnopts = pysftp.CnOpts()
-cnopts.hostkeys = None
-# connect to the sftp server and authenticate with a private key
-sftp = pysftp.Connection(
-    host=ftp_server["host"],
-    username=ftp_server["username"],
-    password=ftp_server["password"],
-    cnopts=cnopts)
+    """
+    Generate admin list and report
+    """
+    # load the configuration file
+    with open(args.env, "r") as jsonfile:
+        data = json.load(jsonfile)
+        kmcs = data["kmcs"]
+        kaltura_user_id = data["user_id"]
+        ftp_server = data["ftp_server"]
 
-# send file to SFTP server
-log.info(
-    f'''Uploaded file to sftp server. File status: {sftp.put(filename)}''')
+    # generate the output csv file with timestamp
+    kmc_admin_df = get_kmc_admin_list(kaltura_user_id, kmcs)
+    log.info(f'''shape of kmc_admin_list {kmc_admin_df.shape}''')
+
+    # send the kaltura kmc admin list to the sftp server
+    sftp_kmc_admin_list(kmc_admin_df, ftp_server)
+
+
+if __name__ == "__main__":
+    main()
