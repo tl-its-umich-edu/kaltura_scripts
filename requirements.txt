@@ -1,3 +1,4 @@
 KalturaApiClient
 pysftp
 pandas
+tqdm
