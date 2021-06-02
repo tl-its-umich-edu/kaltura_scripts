@@ -46,8 +46,7 @@ def get_kmc_admin_list(kaltura_user_id, kmcs):
     column_names = ['kmc_name', 'user_id',
                     'first_name', 'last_name', 'role_name']
     user_df = pd.DataFrame(columns=column_names)
-    for kmc_name in kmcs:
-        kmc = kmcs[kmc_name]
+    for kmc_name, kmc in kmcs.items():
         partnerID = kmc['partnerID']
         adminkey = kmc['adminkey']
         client = get_kaltura_session(kaltura_user_id, partnerID, adminkey)
@@ -58,16 +57,15 @@ def get_kmc_admin_list(kaltura_user_id, kmcs):
         pager.pageSize = 500
         result = client.user.list(filter, pager)
         log.info(
-            f'''Retriving kmc: {kmc_name} Total Records: {result.totalCount}''')
+            f"Retriving kmc: {kmc_name} Total Records: {result.totalCount}")
         for item in result.objects:
             if item.roleNames == "Publisher Administrator" or item.roleNames == "Content Manager":
                 # remove @xxxxx
-                if '@' in item.id:
-                    item_id = item.id.partition('@')
+                kmc_user_id = item.id
+                if '@' in kmc_user_id:
+                    item_id = kmc_user_id.partition('@')
                     id = item_id[0]
                     kmc_user_id = id
-                else:
-                    kmc_user_id = item.id
                 row_data = {'kmc_name': kmc_name,
                             'user_id': kmc_user_id,
                             'first_name': item.firstName,
@@ -93,13 +91,12 @@ def sftp_kmc_admin_list(kmc_admin_df, ftp_server):
     # send file to SFTP server
     filename = 'Kaltura_admin_{}.csv'.format(date.today())
     with sftp.open(filename, 'w+') as f:
-        chunksize = 100
+        chunksize = 10000
         with tqdm(total=len(kmc_admin_df)) as progbar:
-            log.info(f'''status {progbar}''')
+            log.info(f"status {progbar}")
             kmc_admin_df.to_csv(f, index=False, chunksize=chunksize)
             progbar.update(chunksize)
-    log.info(
-        f'''Uploaded file to sftp server.''')
+    log.info("Uploaded file to sftp server.")
 
 
 def main():
@@ -127,7 +124,7 @@ def main():
 
     # generate the output csv file with timestamp
     kmc_admin_df = get_kmc_admin_list(kaltura_user_id, kmcs)
-    log.info(f'''shape of kmc_admin_list {kmc_admin_df.shape}''')
+    log.info(f"shape of kmc_admin_list {kmc_admin_df.shape}")
 
     # send the kaltura kmc admin list to the sftp server
     sftp_kmc_admin_list(kmc_admin_df, ftp_server)
