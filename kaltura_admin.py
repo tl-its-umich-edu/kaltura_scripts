@@ -43,9 +43,7 @@ def get_kmc_admin_list(kaltura_user_id, kmcs):
     loop through all Kaltura Management Consoles
     looking for people with admin roles
     """
-    column_names = ['kmc_name', 'user_id',
-                    'first_name', 'last_name', 'role_name']
-    user_df = pd.DataFrame(columns=column_names)
+    user_id_list = []
     for kmc_name, kmc in kmcs.items():
         partnerID = kmc['partnerID']
         adminkey = kmc['adminkey']
@@ -60,18 +58,26 @@ def get_kmc_admin_list(kaltura_user_id, kmcs):
             f"Retriving kmc: {kmc_name} Total Records: {result.totalCount}")
         for item in result.objects:
             if item.roleNames == "Publisher Administrator" or item.roleNames == "Content Manager":
-                # remove @xxxxx
-                kmc_user_id = item.id
+                kmc_user_id = item.id.lower()
                 if '@' in kmc_user_id:
+                    # remove @xxxxx
                     item_id = kmc_user_id.partition('@')
                     id = item_id[0]
                     kmc_user_id = id
-                row_data = {'kmc_name': kmc_name,
-                            'user_id': kmc_user_id,
-                            'first_name': item.firstName,
-                            'last_name': item.lastName,
-                            'role_name': item.roleNames}
-                user_df = user_df.append(row_data, ignore_index=True)
+
+                # add to user_id_list
+                user_id_list.append(kmc_user_id)
+
+    # remove duplicate
+    result_list = list(set(user_id_list))
+    log.info(len(result_list))
+
+    # sort list
+    result_list.sort()
+
+    # add to dataframe
+    user_df = pd.DataFrame()
+    user_df["USER_ID"] = result_list
     return user_df
 
 
