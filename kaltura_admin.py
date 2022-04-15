@@ -4,7 +4,6 @@ import sys
 import logging
 from KalturaClient.Plugins.Core import KalturaUserFilter, KalturaSessionType, KalturaNullableBoolean, KalturaFilterPager
 from KalturaClient import KalturaClient, KalturaConfiguration
-from KalturaClient.exceptions import KalturaException
 from datetime import date
 import pandas as pd
 from tqdm import tqdm
@@ -70,8 +69,6 @@ def get_kmc_admin_list(kaltura_user_id, kmcs):
 
                     # add to user_id_list
                     user_id_list.append(kmc_user_id)
-        except KalturaException as ke:
-            log.error(f'Problem retrieving items for kmc: {kmc_name} {type(ke)} {ke.args} {ke}')
         except Exception as e:
             log.error(f'Problem retrieving items for kmc: {kmc_name} {type(e)} {e.args} {e}')
         
