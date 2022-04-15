@@ -70,7 +70,7 @@ def get_kmc_admin_list(kaltura_user_id, kmcs):
                     # add to user_id_list
                     user_id_list.append(kmc_user_id)
         except Exception as e:
-            log.error(f'Problem retrieving items for kmc: {kmc_name} {type(e)} {e.args} {e}')
+            log.exception(f'Problem retrieving items for kmc: {kmc_name} {type(e)} {e.args} {e}')
         
     # remove duplicate
     result_list = list(set(user_id_list))
