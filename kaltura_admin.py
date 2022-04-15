@@ -4,6 +4,7 @@ import sys
 import logging
 from KalturaClient.Plugins.Core import KalturaUserFilter, KalturaSessionType, KalturaNullableBoolean, KalturaFilterPager
 from KalturaClient import KalturaClient, KalturaConfiguration
+from KalturaClient.exceptions import KalturaException
 from datetime import date
 import pandas as pd
 from tqdm import tqdm
@@ -45,6 +46,7 @@ def get_kmc_admin_list(kaltura_user_id, kmcs):
     """
     user_id_list = []
     for kmc_name, kmc in kmcs.items():
+        log.info(f'processing kmc: {kmc_name}')
         partnerID = kmc['partnerID']
         adminkey = kmc['adminkey']
         client = get_kaltura_session(kaltura_user_id, partnerID, adminkey)
@@ -53,21 +55,26 @@ def get_kmc_admin_list(kaltura_user_id, kmcs):
         filter.loginEnabledEqual = KalturaNullableBoolean.TRUE_VALUE
         pager = KalturaFilterPager()
         pager.pageSize = 500
-        result = client.user.list(filter, pager)
-        log.info(
-            f"Retriving kmc: {kmc_name} Total Records: {result.totalCount}")
-        for item in result.objects:
-            if item.roleNames == "Publisher Administrator" or item.roleNames == "Content Manager":
-                kmc_user_id = item.id.lower()
-                if '@' in kmc_user_id:
-                    # remove @xxxxx
-                    item_id = kmc_user_id.partition('@')
-                    id = item_id[0]
-                    kmc_user_id = id
+        try:
+            result = client.user.list(filter, pager)
+            log.info(
+                f"Retriving kmc: {kmc_name} Total Records: {result.totalCount}")
+            for item in result.objects:
+                if item.roleNames == "Publisher Administrator" or item.roleNames == "Content Manager":
+                    kmc_user_id = item.id.lower()
+                    if '@' in kmc_user_id:
+                        # remove @xxxxx
+                        item_id = kmc_user_id.partition('@')
+                        id = item_id[0]
+                        kmc_user_id = id
 
-                # add to user_id_list
-                user_id_list.append(kmc_user_id)
-
+                    # add to user_id_list
+                    user_id_list.append(kmc_user_id)
+        except KalturaException as ke:
+            log.error(f'Problem retrieving items for kmc: {kmc_name} {type(ke)} {ke.args} {ke}')
+        except Exception as e:
+            log.error(f'Problem retrieving items for kmc: {kmc_name} {type(e)} {e.args} {e}')
+        
     # remove duplicate
     result_list = list(set(user_id_list))
     log.info(len(result_list))
@@ -88,6 +95,7 @@ def sftp_kmc_admin_list(kmc_admin_df, ftp_server):
     # connect to the sftp server and authenticate with a private key
     cnopts = pysftp.CnOpts()
     cnopts.hostkeys = None
+    log.info(f'FTP result to server: {ftp_server["host"]}')
     sftp = pysftp.Connection(
         host=ftp_server["host"],
         username=ftp_server["username"],
