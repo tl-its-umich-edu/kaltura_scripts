@@ -2,3 +2,4 @@ KalturaApiClient
 pysftp
 pandas
 tqdm
+lxml
